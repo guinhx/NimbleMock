@@ -13,23 +13,25 @@ dotnet add package NimbleMock
 ```csharp
 using NimbleMock;
 
+var mock = Mock.Of<IUserRepository>()
+    .Setup(x => x.GetById(1), new User(1, "Alice"))
+    .SetupAsync(x => x.SaveAsync(null!), true)
+    .Build();
+
+// Use the mock
+var user = mock.Object.GetById(1);
+Console.WriteLine(user.Name);
+
+// Verify calls
+mock.Verify(x => x.GetById(1)).Once();
+
+public record User (int Id, string Name);
+
 public interface IUserRepository
 {
     User GetById(int id);
     Task<bool> SaveAsync(User user);
 }
-
-// Create a mock
-var mock = Mock.Of<IUserRepository>()
-    .Setup(x => x.GetById(1), new User { Id = 1, Name = "Alice" })
-    .SetupAsync(x => x.SaveAsync(default!), true)
-    .Build();
-
-// Use the mock
-var user = mock.Object.GetById(1);
-
-// Verify calls
-mock.Verify(x => x.GetById(1)).Once();
 ```
 
 ## Key Features
