@@ -60,7 +60,58 @@ var mock = Mock.Partial<ILargeService>()
     .Build();
 ```
 
+## Nested Property Mocking
+
+For mocking deep property chains like `IOptions<T>.Value.Database.ConnectionString`, use the composition pattern:
+
+### Compose Nested Interface Mocks
+
+```csharp
+// 1. Mock the innermost interface
+var dbMock = Mock.Of<IDatabaseConfig>()
+    .Setup(x => x.ConnectionString, "Server=localhost")
+    .Setup(x => x.MaxConnections, 100)
+    .Build();
+
+// 2. Mock the outer interface, passing the inner mock
+var configMock = Mock.Of<IAppConfig>()
+    .Setup(x => x.Database, dbMock.Object)
+    .Build();
+
+// 3. Access the nested property
+string conn = configMock.Object.Database.ConnectionString; // "Server=localhost"
+```
+
+### SetupNested (Single-level Shortcut)
+
+For single-level property access, use `SetupNested`:
+
+```csharp
+var mock = Mock.Of<IDatabaseConfig>()
+    .SetupNested(x => x.ConnectionString, "Server=localhost")
+    .Build();
+```
+
+### POCO Properties (Non-Interface)
+
+For concrete classes, set up the value directly:
+
+```csharp
+var settings = new AppSettings 
+{ 
+    Database = new DatabaseSettings { Server = "localhost" }
+};
+
+var mock = Mock.Of<IAppSettingsOptions>()
+    .Setup(x => x.Value, settings)
+    .Build();
+
+// Access nested POCO properties
+string server = mock.Object.Value.Database.Server; // "localhost"
+```
+
 ## VerifiableMock<T>
+
 
 ### Object
 
@@ -126,17 +177,40 @@ mock.Verify(x => x.SendAsync(default!, default!))
     .Matching(email => email.Contains("@"));
 ```
 
-## Mock.Static<T>()
+## Shim.For<T>() - Static Dependencies
 
-Creates a static mock builder for static/sealed types like `DateTime`, `Environment`, etc.
+For mocking static dependencies like `DateTime`, use the **wrapper pattern**. Create an interface for the static dependency, then mock the interface.
 
 ```csharp
-var staticMock = Mock.Static<DateTime>()
-    .Returns(d => d.Now, fixedDate)
+// 1. Define a shim interface
+public interface IDateTimeProvider
+{
+    DateTime Now { get; }
+    DateTime UtcNow { get; }
+}
+
+// 2. Create a default implementation for production
+public class SystemDateTimeProvider : IDateTimeProvider
+{
+    public DateTime Now => DateTime.Now;
+    public DateTime UtcNow => DateTime.UtcNow;
+}
+
+// 3. In tests, mock the interface
+var fixedDate = new DateTime(2024, 1, 1);
+var mock = Shim.For<IDateTimeProvider>()
+    .Replace(d => d.Now, fixedDate)
+    .Replace(d => d.UtcNow, fixedDate)
     .Build();
 
-staticMock.Verify(d => d.Now).Once();
+// Use mock.Object in your code under test
+var service = new MyService(mock.Object);
+
+// Verify calls
+mock.Verify(d => d.Now).Once();
 ```
+
+> **Note**: `Shim.For<T>()` is syntax sugar for `Mock.Of<T>()` - both work identically.
 
 
 ## Advanced Examples

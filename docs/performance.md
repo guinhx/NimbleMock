@@ -12,19 +12,20 @@ NimbleMock is designed for maximum performance with zero allocations in typical 
 | **NSubstitute** | 9,937 ns | 12.36 KB |
 | **NimbleMock** | **1,415 ns** | **3.45 KB** |
 
-**NimbleMock is 34x faster than Moq and 7x faster than NSubstitute in mock creation.**
+**NimbleMock is 34× as fast as Moq and 7× as fast as NSubstitute in mock creation.**
 
 ### Method Execution
 
 Method execution benchmarks measure the time to call a mocked method and retrieve the configured return value. These benchmarks test the overhead of invoking methods on mock instances.
 
-| Library | Time | Performance Gain |
-|---------|------|------------------|
+| Library | Time | vs Baseline |
+|---------|------|-------------|
 | **Moq** | ~1.4 μs | Baseline |
-| **NSubstitute** | ~1.6 μs | 1.14x slower |
-| **NimbleMock** | **~0.6 μs** | **2.3x faster** |
+| **NSubstitute** | ~1.6 μs | 14% slower |
+| **NimbleMock** | **~0.6 μs** | **2.3× as fast** |
 
-*Note: Execution benchmarks measure method call overhead. Actual performance depends on method complexity and return value size.*
+*Note: "2.3× as fast" means NimbleMock takes 1/2.3 of the time, equivalent to being 133% faster.*
+
 
 ### Verification
 
@@ -34,7 +35,7 @@ Method execution benchmarks measure the time to call a mocked method and retriev
 | **NSubstitute** | 2,163 ns | 2.82 KB |
 | **NimbleMock** | **585 ns** | **0.53 KB** |
 
-**NimbleMock is 3x faster than Moq and 3.7x faster than NSubstitute in verification.**
+**NimbleMock is 3× as fast as Moq and 3.7× as fast as NSubstitute in verification.**
 
 *Benchmarks: .NET 8.0.22, x64, RyuJIT AVX2, Windows 11*
 
