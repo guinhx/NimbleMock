@@ -2,13 +2,14 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
-using Microsoft.CodeAnalysis.SymbolDisplay;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using NimbleMock.SourceGenerator.Internal;
+
+namespace NimbleMock.SourceGenerator;
 
 [Generator]
 public class MockProxyGenerator : IIncrementalGenerator
@@ -17,7 +18,7 @@ public class MockProxyGenerator : IIncrementalGenerator
     {
         var mockCalls = context.SyntaxProvider
             .CreateSyntaxProvider(
-                predicate: IsMockOfCall,
+                predicate: IsMockCall,
                 transform: GetMockType)
             .Where(static m => m is not null);
 
@@ -26,12 +27,15 @@ public class MockProxyGenerator : IIncrementalGenerator
         context.RegisterSourceOutput(compilation, GenerateProxies!);
     }
 
-    private static bool IsMockOfCall(SyntaxNode node, CancellationToken ct)
+    /// <summary>
+    /// Detects Mock.Of, Mock.Partial, and Mock.Static calls.
+    /// </summary>
+    private static bool IsMockCall(SyntaxNode node, CancellationToken ct)
         => node is InvocationExpressionSyntax
         {
             Expression: MemberAccessExpressionSyntax
             {
-                Name.Identifier.ValueText: "Of" or "Partial",
+                Name.Identifier.ValueText: "Of" or "Partial" or "Static",
                 Expression: IdentifierNameSyntax { Identifier.ValueText: "Mock" }
             }
         };
@@ -67,28 +71,96 @@ public class MockProxyGenerator : IIncrementalGenerator
 
         foreach (var type in uniqueTypes)
         {
-            var (proxySource, factorySource) = GenerateProxy(type);
-            context.AddSource(
-                $"Mock_{type.Name}.g.cs",
-                SourceText.From(proxySource, Encoding.UTF8));
-            context.AddSource(
-                $"Mock_{type.Name}_Factory.g.cs",
-                SourceText.From(factorySource, Encoding.UTF8));
+            try
+            {
+                var (proxySource, factorySource) = GenerateProxy(type);
+                var safeFileName = GetSafeFileName(type);
+                
+                context.AddSource(
+                    $"Mock_{safeFileName}.g.cs",
+                    SourceText.From(proxySource, Encoding.UTF8));
+                context.AddSource(
+                    $"Mock_{safeFileName}_Factory.g.cs",
+                    SourceText.From(factorySource, Encoding.UTF8));
+            }
+            catch (System.Exception ex)
+            {
+                // Report diagnostic instead of failing silently
+                context.ReportDiagnostic(Diagnostic.Create(
+                    Diagnostics.ProxyGenerationFailed,
+                    Location.None,
+                    type.ToDisplayString(),
+                    ex.Message));
+            }
         }
+    }
+
+    /// <summary>
+    /// Creates a safe file name that handles nested types.
+    /// </summary>
+    private static string GetSafeFileName(INamedTypeSymbol type)
+    {
+        var parts = new List<string>();
+        var current = type;
+        
+        while (current != null)
+        {
+            parts.Insert(0, current.Name);
+            current = current.ContainingType;
+        }
+        
+        return string.Join("_", parts);
+    }
+
+    /// <summary>
+    /// Gets the full type name including containing types for nested types.
+    /// </summary>
+    private static string GetFullTypeName(INamedTypeSymbol type)
+    {
+        var ns = type.ContainingNamespace?.ToDisplayString();
+        var isGlobalNamespace = string.IsNullOrEmpty(ns) || ns == "<global namespace>";
+        
+        // Build the type name chain for nested types
+        var typeChain = new List<string>();
+        var current = type;
+        while (current != null)
+        {
+            typeChain.Insert(0, current.Name);
+            current = current.ContainingType;
+        }
+        
+        var typePath = string.Join(".", typeChain);
+        
+        return isGlobalNamespace ? typePath : $"{ns}.{typePath}";
+    }
+
+    /// <summary>
+    /// Gets a unique proxy name that handles nested types.
+    /// </summary>
+    private static string GetProxyName(INamedTypeSymbol type)
+    {
+        var parts = new List<string>();
+        var current = type;
+        
+        while (current != null)
+        {
+            parts.Insert(0, current.Name);
+            current = current.ContainingType;
+        }
+        
+        return $"MockProxy_{string.Join("_", parts)}";
     }
 
     private static (string ProxySource, string FactorySource) GenerateProxy(INamedTypeSymbol interfaceType)
     {
-        var typeName = interfaceType.Name;
-        var proxyName = $"MockProxy_{typeName}";
-        var interfaceNs = interfaceType.ContainingNamespace.ToDisplayString();
-        var fullTypeName = interfaceNs == "" 
-            ? typeName 
-            : $"{interfaceNs}.{typeName}";
+        var fullTypeName = GetFullTypeName(interfaceType);
+        var proxyName = GetProxyName(interfaceType);
+        var interfaceNs = interfaceType.ContainingNamespace?.ToDisplayString();
+        var isGlobalNamespace = string.IsNullOrEmpty(interfaceNs) || interfaceNs == "<global namespace>";
+        
+        // For nested types, we need to determine the outermost namespace
+        var effectiveNamespace = isGlobalNamespace ? "NimbleMock.Generated" : interfaceNs;
 
-        var typeNameForGeneric = interfaceType.ToDisplayString(
-            SymbolDisplayFormat.MinimallyQualifiedFormat
-                .WithGlobalNamespaceStyle(SymbolDisplayGlobalNamespaceStyle.Omitted));
         var proxySb = new StringBuilder();
         proxySb.AppendLine("// <auto-generated/>");
         proxySb.AppendLine("#nullable enable");
@@ -96,16 +168,28 @@ public class MockProxyGenerator : IIncrementalGenerator
         proxySb.AppendLine("using System.Runtime.CompilerServices;");
         proxySb.AppendLine("using NimbleMock.Internal;");
         proxySb.AppendLine();
-        proxySb.AppendLine($"namespace {interfaceNs};");
+        proxySb.AppendLine($"namespace {effectiveNamespace};");
         proxySb.AppendLine();
         proxySb.AppendLine($"internal sealed class {proxyName} : {fullTypeName}");
         proxySb.AppendLine("{");
-        proxySb.AppendLine($"    private readonly NimbleMock.Internal.MockInstance<{fullTypeName}> _instance;");
+        proxySb.AppendLine($"    private readonly MockInstance<{fullTypeName}> _instance;");
         proxySb.AppendLine();
-        proxySb.AppendLine($"    public {proxyName}(NimbleMock.Internal.MockInstance<{fullTypeName}> instance)");
+        proxySb.AppendLine($"    public {proxyName}(MockInstance<{fullTypeName}> instance)");
         proxySb.AppendLine("        => _instance = instance;");
         proxySb.AppendLine();
 
+        // Generate properties first
+        var properties = interfaceType.GetMembers()
+            .OfType<IPropertySymbol>()
+            .Where(p => !p.IsIndexer)
+            .ToArray();
+
+        foreach (var property in properties)
+        {
+            CodeGenerationHelpers.GeneratePropertyBody(proxySb, property, fullTypeName);
+        }
+
+        // Generate methods
         var methods = interfaceType.GetMembers()
             .OfType<IMethodSymbol>()
             .Where(m => m.MethodKind == MethodKind.Ordinary)
@@ -118,31 +202,46 @@ public class MockProxyGenerator : IIncrementalGenerator
 
         proxySb.AppendLine("}");
 
+        // Generate factory - always use fully qualified type name
         var factorySb = new StringBuilder();
         factorySb.AppendLine("// <auto-generated/>");
         factorySb.AppendLine("#nullable enable");
         factorySb.AppendLine("using System;");
+        factorySb.AppendLine("using System.Runtime.CompilerServices;");
         factorySb.AppendLine("using NimbleMock.Internal;");
-        if (interfaceNs != "")
-        {
-            factorySb.AppendLine($"using {interfaceNs};");
-        }
         factorySb.AppendLine();
         factorySb.AppendLine("namespace NimbleMock.Internal;");
         factorySb.AppendLine();
-        var factoryTypeParam = interfaceNs != "" ? typeName : fullTypeName;
-        factorySb.AppendLine($"internal static class MockProxy_{typeName}_Factory");
+        
+        // Use a unique factory class name that includes nested type info
+        var factoryClassName = $"MockProxy_{GetSafeFileName(interfaceType)}_Factory";
+        factorySb.AppendLine($"internal static class {factoryClassName}");
         factorySb.AppendLine("{");
-        factorySb.AppendLine("    [System.Runtime.CompilerServices.ModuleInitializer]");
+        factorySb.AppendLine("    [ModuleInitializer]");
         factorySb.AppendLine("    internal static void Initialize()");
         factorySb.AppendLine("    {");
-        var proxyTypeRef = interfaceNs == "" ? proxyName : $"{interfaceNs}.{proxyName}";
-        factorySb.AppendLine($"        NimbleMock.Internal.MockProxy<{factoryTypeParam}>.RegisterFactory(instance => new {proxyTypeRef}(instance));");
+        
+        var proxyTypeRef = $"{effectiveNamespace}.{proxyName}";
+        // Always use fully qualified type name for registration
+        factorySb.AppendLine($"        MockProxy<{fullTypeName}>.RegisterFactory(instance => new {proxyTypeRef}(instance));");
         factorySb.AppendLine("    }");
         factorySb.AppendLine("}");
 
         return (proxySb.ToString(), factorySb.ToString());
     }
 
+    /// <summary>
+    /// Diagnostic descriptors for source generator.
+    /// </summary>
+    private static class Diagnostics
+    {
+        public static readonly DiagnosticDescriptor ProxyGenerationFailed = new(
+            id: "NMOCK100",
+            title: "Mock proxy generation failed",
+            messageFormat: "Failed to generate mock proxy for '{0}': {1}",
+            category: "NimbleMock.SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true,
+            description: "The source generator encountered an error while generating a mock proxy.");
+    }
 }
-

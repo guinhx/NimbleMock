@@ -1,4 +1,3 @@
-using System;
 using System.Runtime.CompilerServices;
 using NimbleMock.Internal;
 
@@ -27,15 +26,4 @@ public static class Mock
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static PartialMock<T> Partial<T>() where T : class
         => new(new MethodSetup[8]);
-    
-    /// <summary>
-    /// Creates a static mock builder for the specified static/sealed type.
-    /// Allows mocking static members like DateTime.Now, Environment.GetEnvironmentVariable, etc.
-    /// </summary>
-    /// <typeparam name="T">The static/sealed type to mock.</typeparam>
-    /// <returns>A static mock builder that can be configured with member setups.</returns>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static StaticMockBuilder<T> Static<T>() where T : class
-        => new(new MethodSetup[32], new StaticWrapper<T>());
 }
-
