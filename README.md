@@ -8,7 +8,7 @@
 
 ## Why NimbleMock?
 
-**34x faster** than Moq, **7x faster** than NSubstitute in mock creation. **67% less memory** allocation.
+**34× as fast** as Moq, **7× as fast** as NSubstitute in mock creation. **67% less memory** allocation.
 
 ```csharp
 // Before (Moq) - 48,812ns, 10.37 KB

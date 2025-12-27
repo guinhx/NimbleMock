@@ -28,17 +28,32 @@ public class MockProxyGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// Detects Mock.Of, Mock.Partial, and Mock.Static calls.
+    /// Detects Mock.Of, Mock.Partial, Mock.Static, and Shim.For calls.
     /// </summary>
     private static bool IsMockCall(SyntaxNode node, CancellationToken ct)
-        => node is InvocationExpressionSyntax
+    {
+        if (node is not InvocationExpressionSyntax invocation)
+            return false;
+            
+        if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
+            return false;
+
+        var methodName = memberAccess.Name.Identifier.ValueText;
+        
+        // Check for Mock.Of, Mock.Partial, Mock.Static
+        if (memberAccess.Expression is IdentifierNameSyntax { Identifier.ValueText: "Mock" })
         {
-            Expression: MemberAccessExpressionSyntax
-            {
-                Name.Identifier.ValueText: "Of" or "Partial" or "Static",
-                Expression: IdentifierNameSyntax { Identifier.ValueText: "Mock" }
-            }
-        };
+            return methodName is "Of" or "Partial" or "Static";
+        }
+        
+        // Check for Shim.For
+        if (memberAccess.Expression is IdentifierNameSyntax { Identifier.ValueText: "Shim" })
+        {
+            return methodName == "For";
+        }
+        
+        return false;
+    }
 
     private static INamedTypeSymbol? GetMockType(
         GeneratorSyntaxContext context,
