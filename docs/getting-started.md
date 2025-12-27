@@ -39,7 +39,7 @@ mock.Verify(x => x.GetById(1)).Once();
 - **Fluent API** with intelligent type inference
 - **First-class async** support for `Task<T>` and `ValueTask<T>`
 - **Partial mocks** for large interfaces
-- **Static/Sealed type mocking** via `Mock.Static<T>` (e.g., `DateTime.Now`)
+- **Static dependencies** via `Shim.For<T>()` wrapper pattern
 - **Generics & nested hierarchies** with full type inference
 - **Lie-proofing** validation against real API endpoints
 - **Compile-time** analyzers
@@ -47,6 +47,7 @@ mock.Verify(x => x.GetById(1)).Once();
 ## Next Steps
 
 - See [API Reference](api-reference.md) for detailed API documentation
+- See [Partial Mock Examples](partial-mock-examples.md) for real-world patterns
 - Check [Performance](performance.md) for benchmark results
 - Read [Migration Guide](migration-guide.md) to migrate from Moq
 
